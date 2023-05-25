@@ -6,7 +6,6 @@ import numpy as np
 import cv2
 import os
 import numpyro
-import pyro.distributions as dist
 import numpyro
 import numpyro.distributions as n_dist
 import PyQt5

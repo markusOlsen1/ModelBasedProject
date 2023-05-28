@@ -10,6 +10,7 @@ import os
 import PyQt5
 import skimage.morphology as morph
 import skimage
+from scipy import ndimage
 
 
 def downsampleTimeResolution(timeResolution,minTimeResolution,n_frames,flag):
@@ -26,7 +27,7 @@ def downsampleTimeResolution(timeResolution,minTimeResolution,n_frames,flag):
         print(downsampleFramesIdx[0].shape)
         return downsampleFramesIdx
 
-def loadData(dataPath,timeResolution,extension='.mp4'):
+def loadData(dataPath,timeResolution,extension='.mp4',spatialDownsamplingFactor=1,noVideos=-1):
 
     # Preallocate list to store videos as 3D NumPy arrays
     videoList = []
@@ -38,10 +39,14 @@ def loadData(dataPath,timeResolution,extension='.mp4'):
     # Only include files with specified extension
     files=[file for file in files if file.endswith(extension)]
 
+    
+    if noVideos!=-1: # Only include some videos
+        files = files[:noVideos]
+        
     for vidIdx,vidFile in enumerate(files):
         print(f'Loading video {vidIdx+1}/{len(files)}..')
         vidCv2 = cv2.VideoCapture(os.path.join(dataPath,vidFile))
-        print("    Spatial resolution:" ,int(vidCv2.get(cv2.CAP_PROP_FRAME_WIDTH)), "x", int(vidCv2.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        print("    Spatial resolution before spatial downsampling:" ,int(vidCv2.get(cv2.CAP_PROP_FRAME_WIDTH)), "x", int(vidCv2.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
         n_frames = int(vidCv2.get(cv2.CAP_PROP_FRAME_COUNT))
         print(f'    No. of frames before temporal downsampling: {n_frames}')
@@ -55,11 +60,12 @@ def loadData(dataPath,timeResolution,extension='.mp4'):
             ret, frame = vidCv2.read()
             if ret == True and sampleFrames[frameIdx]:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                frames.append(frame)
+                frameDownsampled=frame[::spatialDownsamplingFactor,::spatialDownsamplingFactor]
+                frames.append(frameDownsampled)
             if ret == False:
                 break
             frameIdx+=1
-
+        print("    Spatial resolution before spatial downsampling:" ,frameDownsampled.shape[1], "x", frameDownsampled.shape[0])
         print(f'    No. of frames after temporal downsampling: {len(frames)}\n')
 
         video = np.stack(frames, axis=0)
@@ -67,6 +73,29 @@ def loadData(dataPath,timeResolution,extension='.mp4'):
 
         cv2.destroyAllWindows()
     return videoList
+
+###########################################################
+### Code used to generate transPts.npz (only used once) ###
+###########################################################
+
+# Switch to interactive mode
+#%matplotlib qt 
+
+# Identify the four corners in the ultrasound field of view of each video manually
+
+# ptsList=[]
+# for vidIdx in range(len(videosList)):
+#     plt.imshow(videosList[vidIdx][0]>10,cmap='gray')
+#     pts=plt.ginput(4)
+#     ptsList.append(np.array(pts))
+#     plt.show()
+#     plt.close()
+# ptsArray = np.array(ptsList).astype(np.float32)
+# np.savez('transPts',ptsArray)
+
+# Switch back to inline mode
+#%matplotlib inline 
+############################################################
 
 def getAffineTrans(videoList,ptsArray,refIdx):
     _ , refRows, refCols = videoList[refIdx].shape
@@ -90,7 +119,9 @@ def getAffineTrans(videoList,ptsArray,refIdx):
             videoTransList.append(vid)
     return videoTransList
 
-def maskAndSmooth(videoList):
+def maskAndSmooth(videoList,sigmaTuple):
+
+    assert len(sigmaTuple)==3,'There must be a sigma value for all dims'
 
     disk = np.zeros((40,40))
     element = skimage.draw.disk((20,20),9,shape=(40,40))
@@ -98,7 +129,7 @@ def maskAndSmooth(videoList):
 
     morphsInput = []
     videoMasks = []
-    videosTransMaskList = []
+    videoTransMaskList = []
     for vid in videoList:
         vidThr = np.zeros(vid.shape[1:])
         for frame in vid:
@@ -108,5 +139,8 @@ def maskAndSmooth(videoList):
         vidMask = morph.closing(vidMask,disk) # Then closing
         morphsInput.append(morphInput)
         videoMasks.append(vidMask)
-        videosTransMaskList.append(vid*vidMask[None,:,:])
-    return 0
+        vidNormalized=vid/255
+        vidSmooth=ndimage.gaussian_filter(vidNormalized,sigma=sigmaTuple)
+        videoTransMaskList.append(vidSmooth*vidMask[None,:,:])
+
+    return videoTransMaskList, morphsInput, videoMasks

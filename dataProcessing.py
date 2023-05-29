@@ -119,12 +119,14 @@ def getAffineTrans(videoList,ptsArray,refIdx):
             videoTransList.append(vid)
     return videoTransList
 
-def maskAndSmooth(videoList,sigmaTuple):
+def maskAndSmooth(videoList,sigmaTuple,spatialDownsamplingFactor=1):
 
     assert len(sigmaTuple)==3,'There must be a sigma value for all dims'
 
-    disk = np.zeros((40,40))
-    element = skimage.draw.disk((20,20),9,shape=(40,40))
+    diskSize=int(40/spatialDownsamplingFactor)
+
+    disk = np.zeros((diskSize,diskSize))
+    element = skimage.draw.disk((int(diskSize/2),int(diskSize/2)),int(9/spatialDownsamplingFactor),shape=(diskSize,diskSize))
     disk[element]=1
 
     morphsInput = []
